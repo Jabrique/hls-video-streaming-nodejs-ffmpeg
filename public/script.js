@@ -1,6 +1,29 @@
-document.addEventListener('DOMContentLoaded', () => {
+// Store configuration from server
+let appConfig = {
+  uriSigningParam: 'URISigningPackage' // default fallback
+};
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load configuration first
+  await loadConfig();
+  // Then load videos
   loadVideos();
 });
+
+/**
+ * Load application configuration from server
+ */
+async function loadConfig() {
+  try {
+    const response = await fetch('/api/config');
+    if (response.ok) {
+      appConfig = await response.json();
+      console.log('Configuration loaded:', appConfig);
+    }
+  } catch (error) {
+    console.warn('Failed to load config, using defaults:', error);
+  }
+}
 
 function loadVideos() {
   const videoList = document.getElementById('videoList');
@@ -26,29 +49,91 @@ function loadVideos() {
     });
 }
 
-function openModal(videoElement) {
+async function openModal(videoElement) {
   const modal = document.getElementById('modal');
   const video = document.getElementById('video');
   const videoSrc = videoElement.getAttribute('data-video');
 
-  if (Hls.isSupported()) {
-    const hls = new Hls();
-    hls.loadSource(videoSrc);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      video.play();
-    });
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = videoSrc;
-    video.addEventListener('loadedmetadata', () => {
-      video.play();
-    });
-  } else {
-    console.error('HLS not supported in this browser');
-  }
+  try {
+    // Extract video name from path: /videos/movieName/playlist.m3u8 -> movieName
+    const videoName = extractVideoName(videoSrc);
+    
+    // Generate JWT token for this video
+    const token = await generateJWTToken(videoName);
 
-  modal.classList.remove('hidden');
-  document.body.classList.add('no-scroll');
+    // Append token to manifest URL using configured parameter name
+    const signedVideoSrc = `${videoSrc}?${appConfig.uriSigningParam}=${token}`;
+
+    console.log('Loading video with signed URL:', signedVideoSrc);
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        // Configure HLS.js to include credentials for cross-origin requests
+        xhrSetup: function(xhr, url) {
+          xhr.withCredentials = true;  // Include cookies for segment requests
+        }
+      });
+      hls.loadSource(signedVideoSrc);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play();
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = signedVideoSrc;
+      video.addEventListener('loadedmetadata', () => {
+        video.play();
+      });
+    } else {
+      console.error('HLS not supported in this browser');
+    }
+
+    modal.classList.remove('hidden');
+    document.body.classList.add('no-scroll');
+  } catch (error) {
+    console.error('Error loading video:', error);
+    alert('Failed to load video. Please try again.');
+  }
+}
+
+/**
+ * Extract video name from video path
+ * Example: /videos/movies1/playlist.m3u8 -> movies1
+ */
+function extractVideoName(videoPath) {
+  const parts = videoPath.split('/').filter(p => p);
+  // Find index of 'videos' directory
+  const videosIndex = parts.indexOf('videos');
+  if (videosIndex >= 0 && parts.length > videosIndex + 1) {
+    return parts[videosIndex + 1];
+  }
+  // Fallback: return second-to-last part
+  return parts[parts.length - 2] || 'unknown';
+}
+
+/**
+ * Generate JWT token for video from backend
+ * @param {string} videoName - Name of the video directory
+ * @returns {Promise<string>} JWT token
+ */
+async function generateJWTToken(videoName) {
+  try {
+    const response = await fetch(`/api/token/${videoName}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to generate token');
+    }
+    
+    const data = await response.json();
+    return data.token;
+  } catch (error) {
+    console.error('Error generating JWT token:', error);
+    throw error;
+  }
 }
 
 function closeModal() {

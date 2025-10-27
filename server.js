@@ -7,6 +7,11 @@ const {
   generateVideoSegments,
 } = require('./utils/ffmpeg-utils');
 const fs = require('fs-extra');
+const {
+  generateManifestToken,
+  generateTokenForPath,
+  verifyToken
+} = require('./utils/jwt-signing');
 
 const app = express();
 
@@ -48,6 +53,47 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
 app.get('/data', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'data.json'));
+});
+
+/**
+ * API: Get client configuration
+ * GET /api/config
+ * Returns configuration values needed by the frontend
+ */
+app.get('/api/config', (_req, res) => {
+  res.json({
+    uriSigningParam: process.env.URI_SIGNING_PARAM || 'URISigningPackage'
+  });
+});
+
+/**
+ * Internal API: Generate JWT token for video
+ * GET /api/token/:videoName
+ * Returns only the token string (lightweight)
+ */
+app.get('/api/token/:videoName', (req, res) => {
+  try {
+    const { videoName } = req.params;
+    const {
+      expiresIn = 3600,
+      renewalDuration = 300,
+      hostname = '[^/]*'
+    } = req.query;
+    
+    const token = generateManifestToken(videoName, {
+      expiresIn: parseInt(expiresIn),
+      renewalDuration: parseInt(renewalDuration),
+      hostname
+    });
+    
+    // Return only token (lightweight response)
+    res.json({ token });
+  } catch (error) {
+    console.error('Error generating token:', error);
+    res.status(500).json({
+      error: 'Failed to generate token'
+    });
+  }
 });
 
 const PORT = process.env.PORT || 3000;

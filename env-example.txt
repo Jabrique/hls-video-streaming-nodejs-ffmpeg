@@ -1,0 +1,30 @@
+# JWT URI Signing Configuration
+# Copy to .env and replace with your actual values
+
+# Required - Issuer name (must match CDN jwks.json)
+JWT_ISSUER=CDN URI Authority
+
+# Required - Audience/CDN ID (must match CDN jwks.json)
+JWT_AUDIENCE=mycdn
+
+# Required - Primary Key ID (must match CDN jwks.json)
+JWT_PRIMARY_KID=primary-key-2024
+
+# Required - Primary Secret Key (used by origin for signing)
+# Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+JWT_PRIMARY_SECRET=your_secret_key_here
+
+# Optional - CDN URL endpoint (where clients will request videos instead of origin)
+# If empty or not set, will auto-detect using server hostname/IP
+CDN_URL=
+
+# Optional - URI Signing query parameter name (used in video URLs)
+# This is the parameter name that will be appended to video URLs with the JWT token
+# Example: if set to "token", URLs will be like: /videos/movie/playlist.m3u8?token=xxx
+URI_SIGNING_PARAM=URISigningPackage
+
+# Optional - Defaults
+JWT_ALGORITHM=HS256
+JWT_EXPIRES_IN=3600
+JWT_RENEWAL_DURATION=300
+

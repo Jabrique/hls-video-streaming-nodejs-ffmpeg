@@ -52,10 +52,15 @@ async function generateVideoSegments(filePath, outputDir, title, res) {
       ])
       .on('end', async () => {
         await fs.remove(filePath);
+        // Use CDN URL if available, otherwise use relative path
+        const cdnUrl = process.env.CDN_URL || '';
+        const videoPath = cdnUrl ? `${cdnUrl}/videos/${title}/index.m3u8` : `videos/${title}/index.m3u8`;
+        const thumbPath = cdnUrl ? `${cdnUrl}/videos/${title}/thumbnail.webp` : `videos/${title}/thumbnail.webp`;
+        
         updateJsonData(
           title,
-          `videos/${title}/index.m3u8`,
-          `videos/${title}/thumbnail.webp`
+          videoPath,
+          thumbPath
         );
         console.log('Video segments generation completed.');
         res.json({ message: 'Video uploaded and converted successfully.' });
