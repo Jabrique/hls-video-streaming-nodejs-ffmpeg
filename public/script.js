@@ -64,6 +64,8 @@ async function openModal(videoElement) {
     // Append token to manifest URL using configured parameter name
     const signedVideoSrc = `${videoSrc}?${appConfig.uriSigningParam}=${token}`;
 
+    const playbackSessionId = crypto.randomUUID();
+
     console.log('Loading video with signed URL:', signedVideoSrc);
 
     if (Hls.isSupported()) {
@@ -71,6 +73,7 @@ async function openModal(videoElement) {
         // Configure HLS.js to include credentials for cross-origin requests
         xhrSetup: function(xhr, url) {
           xhr.withCredentials = true;  // Include cookies for segment requests
+          xhr.setRequestHeader('X-Playback-Session-Id', playbackSessionId);
         }
       });
       hls.loadSource(signedVideoSrc);
