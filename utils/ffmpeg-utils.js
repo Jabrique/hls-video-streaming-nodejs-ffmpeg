@@ -42,27 +42,32 @@ async function generateVideoSegments(filePath, outputDir, title, res) {
         '-preset medium', // Compression preset
         '-crf 24', // CRF for quality control (lower is better quality)
       ])
-      .output(`${outputDir}/index.m3u8`)
+
+      .output(`${outputDir}/index.mpd`) // Ganti nama file output ke .mpd
       .outputOptions([
-        '-start_number 0', // Sets the starting number for the HLS segments.
-        '-hls_time 4', // Duration of each HLS segment in seconds.
-        '-hls_list_size 0', // Ensures all segments are included in the playlist.
-        '-hls_playlist_type vod', // Designates the playlist as VOD and includes the EXT-X-ENDLIST tag.
-        '-f hls', // Specifies the output format as HLS (HTTP Live Streaming).
+        '-f dash',                   
+        '-seg_duration 4',           
+        '-use_template 1',           
+        '-use_timeline 1',           
+
+        '-init_seg_name init-$RepresentationID$.m4s',
+        '-media_seg_name segment-$RepresentationID$-$Number$.m4s',
       ])
       .on('end', async () => {
         await fs.remove(filePath);
-        // Use CDN URL if available, otherwise use relative path
+
         const cdnUrl = process.env.CDN_URL || '';
-        const videoPath = cdnUrl ? `${cdnUrl}/videos/${title}/index.m3u8` : `videos/${title}/index.m3u8`;
-        const thumbPath = cdnUrl ? `${cdnUrl}/videos/${title}/thumbnail.webp` : `videos/${title}/thumbnail.webp`;
-        
-        updateJsonData(
-          title,
-          videoPath,
-          thumbPath
-        );
-        console.log('Video segments generation completed.');
+
+        const videoPath = cdnUrl
+          ? `${cdnUrl}/videos/${title}/index.mpd`
+          : `videos/${title}/index.mpd`;
+
+        const thumbPath = cdnUrl
+          ? `${cdnUrl}/videos/${title}/thumbnail.webp`
+          : `videos/${title}/thumbnail.webp`;
+
+        updateJsonData(title, videoPath, thumbPath);
+        console.log('Video segments generation (DASH) completed.');
         res.json({ message: 'Video uploaded and converted successfully.' });
         resolve();
       })

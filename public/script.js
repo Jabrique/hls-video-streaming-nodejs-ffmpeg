@@ -66,25 +66,20 @@ async function openModal(videoElement) {
 
     console.log('Loading video with signed URL:', signedVideoSrc);
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        // Configure HLS.js to include credentials for cross-origin requests
-        xhrSetup: function(xhr, url) {
-          xhr.withCredentials = true;  // Include cookies for segment requests
-        }
-      });
-      hls.loadSource(signedVideoSrc);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play();
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = signedVideoSrc;
-      video.addEventListener('loadedmetadata', () => {
-        video.play();
-      });
-    } else {
-      console.error('HLS not supported in this browser');
+    try {
+      const player = dashjs.MediaPlayer().create();
+
+      // Set credentials for different request types using correct DASH.js constants
+      player.setXHRWithCredentialsForType('MPD', true);
+      player.setXHRWithCredentialsForType('MediaSegment', true);
+      player.setXHRWithCredentialsForType('InitializationSegment', true);
+
+      player.initialize(video, signedVideoSrc, true);
+
+      video.dashPlayer = player;
+
+    } catch (error) {
+      console.error('Error initializing DASH player:', error);
     }
 
     modal.classList.remove('hidden');
@@ -139,7 +134,15 @@ async function generateJWTToken(videoName) {
 function closeModal() {
   const modal = document.getElementById('modal');
   const video = document.getElementById('video');
+  
+  if (video.dashPlayer) {
+    video.dashPlayer.reset();
+    video.dashPlayer = null;
+  }
+  
   video.pause();
+  video.src = '';
+
   modal.classList.add('hidden');
   document.body.classList.remove('no-scroll');
 }

@@ -78,7 +78,7 @@ function generateManifestToken(videoName, options = {}) {
     
     // cdniuc: Container URI Constraint - regex pattern for allowed paths
     // Path: /videos/videoName/*.ts or *.m3u8 (videoName in lowercase)
-    cdniuc: `regex:https?://${hostname}/videos/${videoName}/.*\\.(ts|m3u8)`,
+    cdniuc: `regex:https?://${hostname}/videos/${videoName}/.*\\.(ts|m3u8|mpd|m4s)`,
     
     // Token renewal claims
     cdnistt: 1,                     // Signed Token Transport - must be 1 for renewal
