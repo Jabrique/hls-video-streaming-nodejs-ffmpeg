@@ -45,9 +45,15 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
   try {
     await generateThumbnail(filePath, outputDir);
-    await generateVideoSegments(filePath, outputDir, title, res);
+    await generateVideoSegments(filePath, outputDir, title); 
+
+    res.json({ message: 'Video uploaded and converted successfully.' });
+
   } catch (error) {
-    res.status(500).json({ message: 'Error processing video.' });
+    console.error("Processing failed:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Error processing video.', detail: error.message });
+    }
   }
 });
 
@@ -96,7 +102,7 @@ app.get('/api/token/:videoName', (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 80;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

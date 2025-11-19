@@ -1,11 +1,22 @@
 const ffmpeg = require('fluent-ffmpeg');
-const ffprobePath = require('ffprobe-static').path; // ffmpeg binary
-const ffmpegPath = require('ffmpeg-static'); // ffmpeg binary
+const ffprobePath = require('ffprobe-static').path;
+const ffmpegPath = require('ffmpeg-static');
 const fs = require('fs-extra');
 const { updateJsonData } = require('./updateJsonData');
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
+
+// Helper: Cek audio
+function hasAudioStream(filePath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) return reject(err);
+      const audioStream = metadata.streams.find(s => s.codec_type === 'audio');
+      resolve(!!audioStream);
+    });
+  });
+}
 
 async function generateThumbnail(filePath, outputDir) {
   return new Promise((resolve, reject) => {
@@ -30,45 +41,86 @@ async function generateThumbnail(filePath, outputDir) {
   });
 }
 
-async function generateVideoSegments(filePath, outputDir, title, res) {
+async function generateVideoSegments(filePath, outputDir, title) {
+  const hasAudio = await hasAudioStream(filePath);
+  console.log(`Audio stream detected: ${hasAudio}`);
+
   return new Promise((resolve, reject) => {
-    ffmpeg(filePath)
-      .on('filenames', function (title) {
-        console.log('Generating Video Segments:', title);
+    const renditions = [
+      { width: 640, height: 360, bitrate: '800k' },
+      { width: 1280, height: 720, bitrate: '2500k' },
+      { width: 1920, height: 1080, bitrate: '5000k' }
+    ];
+
+    let command = ffmpeg(filePath);
+    const outputOptions = [];
+
+    // --- Pengaturan Umum & GOP ---
+    outputOptions.push('-c:v libx264');
+    outputOptions.push('-preset medium');
+    outputOptions.push('-crf 24');
+    outputOptions.push('-keyint_min 48');
+    outputOptions.push('-g 48');
+    outputOptions.push('-sc_threshold 0');
+
+    // --- Mapping Video ---
+    renditions.forEach((rendition, index) => {
+      outputOptions.push(`-map 0:v:0`);
+      outputOptions.push(`-filter:v:${index} scale=-2:${rendition.height}`);
+      outputOptions.push(`-b:v:${index} ${rendition.bitrate}`);
+      outputOptions.push(`-maxrate:v:${index} ${parseInt(rendition.bitrate) * 1.2}k`);
+      outputOptions.push(`-bufsize:v:${index} ${parseInt(rendition.bitrate) * 1.5}k`);
+    });
+
+    // --- Mapping Audio (ENCODE ULANG YANG AMAN) ---
+    if (hasAudio) {
+      outputOptions.push('-map 0:a:0');
+      outputOptions.push('-c:a aac');     // Encode ke AAC
+      outputOptions.push('-b:a 128k');    // Bitrate standar
+      outputOptions.push('-ac 2');        // FORCE Stereo (Penting!)
+      outputOptions.push('-ar 44100');    // FORCE 44.1kHz (Penting!)
+    }
+
+    // --- Konfigurasi DASH ---
+    outputOptions.push('-f dash');
+    outputOptions.push('-seg_duration 4');
+    outputOptions.push('-use_template 1');
+    outputOptions.push('-use_timeline 1');
+    outputOptions.push('-init_seg_name init-$RepresentationID$.m4s');
+    outputOptions.push('-media_seg_name segment-$RepresentationID$-$Number$.m4s');
+    
+    // --- Adaptation Sets (FIXED: Use explicit stream indices) ---
+    // Stream 0,1,2 are video (3 renditions), Stream 3 is audio
+    if (hasAudio) {
+      outputOptions.push('-adaptation_sets', 'id=0,streams=0,1,2 id=1,streams=3');
+    } else {
+      outputOptions.push('-adaptation_sets', 'id=0,streams=0,1,2');
+    }
+
+    command
+      .outputOptions(outputOptions)
+      .output(`${outputDir}/index.mpd`)
+      .on('start', (commandLine) => {
+        console.log('Spawned Ffmpeg with command: ' + commandLine);
       })
-      .outputOptions([
-        '-c:v libx264', // Specifies the H.264 video codec.
-        '-c:a aac', // Specifies the AAC audio codec.
-        '-preset medium', // Compression preset
-        '-crf 24', // CRF for quality control (lower is better quality)
-      ])
-      .output(`${outputDir}/index.m3u8`)
-      .outputOptions([
-        '-start_number 0', // Sets the starting number for the HLS segments.
-        '-hls_time 4', // Duration of each HLS segment in seconds.
-        '-hls_list_size 0', // Ensures all segments are included in the playlist.
-        '-hls_playlist_type vod', // Designates the playlist as VOD and includes the EXT-X-ENDLIST tag.
-        '-f hls', // Specifies the output format as HLS (HTTP Live Streaming).
-      ])
       .on('end', async () => {
         await fs.remove(filePath);
-        // Use CDN URL if available, otherwise use relative path
-        const cdnUrl = process.env.CDN_URL || '';
-        const videoPath = cdnUrl ? `${cdnUrl}/videos/${title}/index.m3u8` : `videos/${title}/index.m3u8`;
-        const thumbPath = cdnUrl ? `${cdnUrl}/videos/${title}/thumbnail.webp` : `videos/${title}/thumbnail.webp`;
         
-        updateJsonData(
-          title,
-          videoPath,
-          thumbPath
-        );
-        console.log('Video segments generation completed.');
-        res.json({ message: 'Video uploaded and converted successfully.' });
+        const cdnUrl = process.env.CDN_URL || '';
+        const videoPath = cdnUrl 
+          ? `${cdnUrl}/videos/${title}/index.mpd` 
+          : `videos/${title}/index.mpd`;
+        const thumbPath = cdnUrl 
+          ? `${cdnUrl}/videos/${title}/thumbnail.webp` 
+          : `videos/${title}/thumbnail.webp`;
+
+        updateJsonData(title, videoPath, thumbPath);
+        console.log('Video segments generation (DASH ABR) completed.');
         resolve();
       })
-      .on('error', (err) => {
-        console.error('FFmpeg error:', err);
-        res.status(500).json({ message: 'Error converting video.' });
+      .on('error', (err, stdout, stderr) => {
+        console.error('FFmpeg error:', err.message);
+        if (stderr) console.error('FFmpeg stderr:', stderr);
         reject(err);
       })
       .run();
